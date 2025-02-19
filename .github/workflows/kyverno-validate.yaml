@@ -1,0 +1,87 @@
+name: Validate Configurations with Kyverno
+
+on:
+  push:
+    paths:
+      - "**/host-config.yaml"
+  pull_request:
+    paths:
+      - "**/host-config.yaml"
+
+jobs:
+  validate:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+      - name: Restore kyverno-cli from cache 
+        id: cache-kyverno
+        uses: actions/cache/restore@v3.4.2
+        with:
+          path: ./kyverno-cli/
+          key: kyverno-cli-cache-${{ runner.os }}
+      - name: Check if cache was successfully restored
+        run: echo "Restored the cache ${{ steps.cache-kyverno.outputs.cache-hit }}"
+      - name: Get latest kyverno version  
+        id: kyverno_version
+        run: |
+          LATEST_VERSION=$(curl --silent "https://api.github.com/repos/kyverno/kyverno/releases/latest" | jq -r .tag_name)
+          echo "LATEST_VERSION=$LATEST_VERSION" >> $GITHUB_ENV
+      - name: Compare downloaded kyverno with restored kyverno 
+        run: |
+          mkdir -p ./kyverno-cli
+          if [ -f ./kyverno-cli/kyverno-cli-linux ]; then
+            CURRENT_VERSION=$(./kyverno-cli/kyverno-cli-linux version | awk '{print $2}')
+          else
+            CURRENT_VERSION="none"
+          fi
+          echo "Current kyverno-cli version: $CURRENT_VERSION"
+          echo "Latest kyverno-cli version: $LATEST_VERSION"
+
+          if [ "$CURRENT_VERSION" != "$LATEST_VERSION" ]; then
+            echo "Downloading kyverno-cli version $LATEST_VERSION"
+            curl -LO https://github.com/kyverno/kyverno/releases/download/${LATEST_VERSION}/kyverno-cli_v${LATEST_VERSION}_linux_x86_64.tar.gz
+            tar -xvzf kyverno-cli_v${LATEST_VERSION}_linux_x86_64.tar.gz
+            mv kyverno ./kyverno-cli/kyverno-cli-linux
+            chmod +x ./kyverno-cli/kyverno-cli-linux
+            echo "NEW_VERSION=true" >> $GITHUB_ENV
+          else
+            echo "kyverno-cli is up to date."
+            echo "NEW_VERSION=false" >> $GITHUB_ENV
+          fi
+      - name: Test kyverno-cli with valid and invalid files to verify 
+        run: |
+          echo "Running Kyverno test with valid and invalid YAML..."
+          
+          cat <<EOF > valid.yaml
+          apiVersion: v1
+          kind: Config
+          metadata:
+            name: valid-config
+          spec:
+            image:
+              name: my-image
+            customer-specific-field: required-value
+          EOF
+
+          cat <<EOF > invalid.yaml
+          apiVersion: v1
+          kind: Config
+          metadata:
+            name: invalid-config
+          spec:
+            image:
+              name: my-image
+            invalid-field: unexpected-value
+          EOF
+
+          ./kyverno-cli/kyverno-cli-linux apply host-config-policy.yaml -r valid.yaml || exit 1
+          ./kyverno-cli/kyverno-cli-linux apply host-config-policy.yaml -r invalid.yaml && exit 1 || echo "Invalid file test passed."
+      - name: Cache updated kyverno-cli if needed
+        if: env.NEW_VERSION == 'true'
+        uses: actions/cache@v3.4.2
+        with:
+          path: ./kyverno-cli/
+          key: kyverno-cli-cache-${{ runner.os }}
+      - name: Validate host-config.yaml files in the repo
+        run: ./kyverno-cli/kyverno-cli-linux apply host-config-policy.yaml -r **/host-config.yaml
