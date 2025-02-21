@@ -32,25 +32,23 @@ jobs:
             exit 1
           fi
 
+          echo "LATEST_VERSION=$LATEST_VERSION" >> $GITHUB_ENV  
+
           if [ -f ./kyverno-cli/kyverno-cli-linux ]; then
-            CURRENT_VERSION=$(./kyverno-cli/kyverno-cli-linux version | awk '{print $2}')
-            
+          CURRENT_VERSION=$(./kyverno-cli/kyverno-cli-linux version | awk '{print $2}')
+        
             if [ "$CURRENT_VERSION" != "$LATEST_VERSION" ]; then
                 echo "Current kyverno-cli version: $CURRENT_VERSION"
                 echo "Latest kyverno-cli version: $LATEST_VERSION"
-
-                echo "LATEST_VERSION=$LATEST_VERSION" >> $GITHUB_ENV
                 echo "NEW_VERSION=true" >> $GITHUB_ENV
             else
                 echo "kyverno-cli is up to date, skipping tests for new kyverno version"
                 echo "NEW_VERSION=false" >> $GITHUB_ENV
             fi
-
           else
             CURRENT_VERSION="none"
             echo "NEW_VERSION=true" >> $GITHUB_ENV
           fi
-
       - name: Compare downloaded kyverno with restored kyverno
         if: env.NEW_VERSION == 'true'
         run: |
@@ -79,7 +77,6 @@ jobs:
           tar -xvzf kyverno-cli.tar.gz
           mv kyverno ./kyverno-cli/kyverno-cli-linux
           chmod +x ./kyverno-cli/kyverno-cli-linux
-
       - name: Test kyverno-cli with valid and invalid files to verify 
         if: env.NEW_VERSION == 'true'
         run: |
