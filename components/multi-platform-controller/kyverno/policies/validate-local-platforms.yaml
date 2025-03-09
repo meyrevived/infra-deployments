@@ -1,0 +1,75 @@
+apiVersion: kyverno.io/v1
+kind: Policy
+metadata:
+  name: enforce-host-config-rules
+  namespace: multi-platform-controller
+spec:
+  validationFailureAction: enforce
+  rules:
+    - name: validate-local-platforms-exists
+      match: &match
+        any:
+        - resources:
+            kinds:
+            - ConfigMap
+      validate:
+        message: "local-platforms must be present and populated by a string value"
+        deny:
+          conditions:
+            any:
+            - key: "{{ request.object.data.\"local-platforms\" || '' }}"
+              operator: Equals
+              value: ""
+    - name: validate-local-platforms-values
+      match: *match
+      validate:
+        message: "local-platforms must be a comma-separated list of valid values - linux/amd64, linux/x86_64, local, localhost."
+        deny:
+          conditions:
+            any:
+            - key: "{{ regex_match('^\\s*(?:(linux\\/(?:amd|x86_)64|local(?:host)?)\\s*,\\s*)*(linux\\/(?:amd|x86_)64|local(?:host)?)\\s*,?\\s*$', request.object.data.\"local-platforms\" || 'empty') }}"
+              operator: Equals
+              value: false
+    # The following rules aim to make sure none of the allowed values appear twice in local-platforms.
+    # No, I couldn't find a more sophisticated way of validating this. 
+    - name: validate-unique-values-amd64
+      match: *match
+      validate:
+        message: "local-platforms must not contain duplicate values - 'linux/amd64' appears twice in it."
+        deny:
+          conditions:
+            any:
+            - key: "{{ regex_match('.*linux/amd64.*linux/amd64.*', request.object.data.\"local-platforms\" || '') }}"
+              operator: Equals
+              value: true
+    - name: validate-unique-values-x86_64
+      match: *match
+      validate:
+        message: "local-platforms must not contain duplicate values - 'linux/x86_64' appears twice in it"
+        deny:
+          conditions:
+            any:
+            - key: "{{ regex_match('.*linux/x86_64.*linux/x86_64.*', request.object.data.\"local-platforms\" || '') }}"
+              operator: Equals
+              value: true
+    - name: validate-unique-values-localhost
+      match: *match
+      validate:
+        message: "local-platforms must not contain duplicate values - 'localhost' appears twice in it."
+        deny:
+          conditions:
+            any:
+            - key: "{{ regex_match('.*localhost.*localhost.*', request.object.data.\"local-platforms\" || '') }}"
+              operator: Equals
+              value: true
+    - name: validate-unique-values-local
+      match: *match
+      validate:
+        message: "local-platforms must not contain duplicate values - 'local' appears twice in it."
+        deny:
+          conditions:
+            any:
+            - key: "{{ regex_match('.*\\blocal\\b.*\\blocal\\b.*', request.object.data.\"local-platforms\" || '') }}"
+              operator: Equals
+              value: true
+            

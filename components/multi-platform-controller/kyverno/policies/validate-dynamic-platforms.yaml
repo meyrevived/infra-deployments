@@ -1,0 +1,23 @@
+apiVersion: kyverno.io/v1
+kind: Policy
+metadata:
+  name: enforce-host-config-rules
+  namespace: multi-platform-controller
+spec:
+  validationFailureAction: enforce
+  rules:
+    - name: validate-dynamic-platforms-exists
+      match: &match
+        any:
+        - resources:
+            kinds:
+            - ConfigMap
+      validate:
+        message: "dynamic-platforms must be present and populated by a string value"
+        deny:
+          conditions:
+            any:
+            - key: "{{ request.object.data.\"dynamic-platforms\" || '' }}"
+              operator: Equals
+              value: ""
+    
