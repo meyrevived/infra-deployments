@@ -6,9 +6,56 @@ metadata:
   name: host-config
   namespace: multi-platform-controller
 data:
-  local-platforms: "linux/amd64,linux/x86_64,local,localhost,"
-
-  dynamic-platforms: "linux-c2xlarge/amd64,linux-c2xlarge/arm64,linux-c4xlarge/amd64,linux-c4xlarge/arm64,linux-c8xlarge/amd64,linux-c8xlarge/arm64,linux-cxlarge/amd64,linux-cxlarge/arm64,linux-d160-cxlarge/arm64,linux-d160-m2xlarge/amd64,linux-d160-m2xlarge/arm64,linux-d160/arm64,linux-d200/ppc64le,linux-d400-large/ppc64le,linux-g6xlarge/amd64,linux-large/ppc64le,linux-large/s390x,linux-largecpu/ppc64le,linux-largecpu/s390x,linux-m2xlarge/amd64,linux-m2xlarge/arm64,linux-m4xlarge/amd64,linux-m4xlarge/arm64,linux-m8xlarge/amd64,linux-m8xlarge/arm64,linux-mlarge/amd64,linux-mlarge/arm64,linux-mxlarge/amd64,linux-mxlarge/arm64,linux-root/amd64,linux-root/arm64,linux/amd64,linux/arm64,linux/ppc64le,linux/s390x,linux-large/ppc64le,linux-extra-fast/amd64,linux-fast/amd64,linux-large/s390x,linux/ppc64le,linux-g4xlarge/amd64,linux-d200/ppc64le,"
+  local-platforms: "\
+    linux/amd64,\
+    linux/x86_64,\
+    local,\
+    localhost,\
+    "
+  dynamic-platforms: "\
+    linux-c2xlarge/amd64,\
+    linux-c2xlarge/arm64,\
+    linux-c4xlarge/amd64,\
+    linux-c4xlarge/arm64,\
+    linux-c8xlarge/amd64,\
+    linux-c8xlarge/arm64,\
+    linux-cxlarge/amd64,\
+    linux-cxlarge/arm64,\
+    linux-d160-cxlarge/arm64,\
+    linux-d160-m2xlarge/amd64,\
+    linux-d160-m2xlarge/arm64,\
+    linux-d160/arm64,\
+    linux-d200/ppc64le,\
+    linux-d400-large/ppc64le,\
+    linux-g6xlarge/amd64,\
+    linux-large/ppc64le,\
+    linux-large/s390x,\
+    linux-largecpu/ppc64le,\
+    linux-largecpu/s390x,\
+    linux-m2xlarge/amd64,\
+    linux-m2xlarge/arm64,\
+    linux-m4xlarge/amd64,\
+    linux-m4xlarge/arm64,\
+    linux-m8xlarge/amd64,\
+    linux-m8xlarge/arm64,\
+    linux-mlarge/amd64,\
+    linux-mlarge/arm64,\
+    linux-mxlarge/amd64,\
+    linux-mxlarge/arm64,\
+    linux-root/amd64,\
+    linux-root/arm64,\
+    linux/amd64,\
+    linux/arm64,\
+    linux/ppc64le,\
+    linux/s390x,\
+    linux-large/ppc64le,\
+    linux-extra-fast/amd64,\
+    linux-fast/amd64,\
+    linux-large/s390x,\
+    linux/ppc64le,\
+    linux-g4xlarge/amd64,\
+    linux-d200/ppc64le,\
+    "
   instance-tag: rhtap-prod
 
   dynamic.linux-arm64.type: aws

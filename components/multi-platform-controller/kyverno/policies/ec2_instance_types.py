@@ -3,9 +3,9 @@ import yaml
 
 def scrape_ec2_instance_types():
     """Scrape AWS EC2 instance types by category and return as a dictionary."""
-    instance_types = {}  # 1. Initialize dictionary to store categories and types
+    instance_types = {}  
     
-    # Launch headless browser (Playwright)
+    # using PLaywright to acrape data from 
     with sync_playwright() as p:
         browser = p.chromium.launch(headless=False)  # headless mode for CI efficiency
         page = browser.new_page()
