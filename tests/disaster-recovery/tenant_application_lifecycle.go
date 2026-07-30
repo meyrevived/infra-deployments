@@ -267,15 +267,15 @@ func buildListOpts(namespace, pipelineType, componentName string) []client.ListO
 // High-level lifecycle helpers
 // ---------------------------------------------------------------------------
 
-// pipelineRunBaseCounts holds per-component build and test PipelineRun counts.
-// Used as a baseline for waitForPipelineChains so it can wait for counts
+// PipelineRunBaseCounts holds per-component build and test PipelineRun counts.
+// Used as a baseline for WaitForPipelineChains so it can wait for counts
 // relative to an initial snapshot (e.g., after triggering a new build).
-type pipelineRunBaseCounts struct {
-	build int
-	test  int
+type PipelineRunBaseCounts struct {
+	Build int
+	Test  int
 }
 
-// waitForPipelineChains waits for the full pipeline chain (build → test →
+// WaitForPipelineChains waits for the full pipeline chain (build → test →
 // release) to complete for every component across all tenants. Each
 // component's chain runs in its own goroutine so that a slow component
 // doesn't block faster ones from progressing through subsequent stages.
@@ -285,8 +285,8 @@ type pipelineRunBaseCounts struct {
 // baseBuildTest provides per-component starting counts keyed by
 // "namespace/componentName". baseRelease provides aggregate starting counts
 // keyed by managed namespace. Pass nil for both on the first run (base of 0).
-func waitForPipelineChains(fw *framework.Framework, tenants []Tenant,
-	baseBuildTest map[string]pipelineRunBaseCounts, baseRelease map[string]int) {
+func WaitForPipelineChains(fw *framework.Framework, tenants []Tenant,
+	baseBuildTest map[string]PipelineRunBaseCounts, baseRelease map[string]int) {
 	GinkgoHelper()
 
 	By("Waiting for per-component build → test chains across all tenants")
@@ -303,14 +303,14 @@ func waitForPipelineChains(fw *framework.Framework, tenants []Tenant,
 				base := baseBuildTest[key] // zero-value if nil map or missing key
 
 				By(fmt.Sprintf("Waiting for build PipelineRun for %s in %s (base: %d)",
-					component.Name, tenant.Namespace, base.build))
+					component.Name, tenant.Namespace, base.Build))
 				waitForSucceededPRCount(fw, tenant.Namespace, "build", component.Name,
-					base.build+1, PipelineTimeout, PipelinePoll)
+					base.Build+1, PipelineTimeout, PipelinePoll)
 
 				By(fmt.Sprintf("Waiting for test PipelineRun for %s in %s (base: %d)",
-					component.Name, tenant.Namespace, base.test))
+					component.Name, tenant.Namespace, base.Test))
 				waitForSucceededPRCount(fw, tenant.Namespace, "test", component.Name,
-					base.test+1, PipelineTimeout, PipelinePoll)
+					base.Test+1, PipelineTimeout, PipelinePoll)
 			}(t, comp)
 		}
 	}
@@ -330,7 +330,7 @@ func waitForPipelineChains(fw *framework.Framework, tenants []Tenant,
 	}
 }
 
-// triggerBuildsAndVerify pushes commits to each tenant's forked MathWizz
+// TriggerBuildsAndVerify pushes commits to each tenant's forked MathWizz
 // repo's default branch to trigger new builds via PaC push webhooks, then
 // waits for the full pipeline chain (build → integration test → release) to
 // complete. Push events (not PRs) are required because integration-service
@@ -342,23 +342,23 @@ func waitForPipelineChains(fw *framework.Framework, tenants []Tenant,
 //     the default branch (matching PaC .pathChanged() filters).
 //  3. Waits for new build and test PipelineRuns per component (parallel).
 //  4. Waits for new release PipelineRuns (aggregate).
-func triggerBuildsAndVerify(fw *framework.Framework, tenants []Tenant) {
+func TriggerBuildsAndVerify(fw *framework.Framework, tenants []Tenant) {
 	GinkgoHelper()
 
 	By("Snapshotting current per-component PipelineRun counts before triggering")
 
-	initialPerComp := make(map[string]pipelineRunBaseCounts)
+	initialPerComp := make(map[string]PipelineRunBaseCounts)
 	initialRelease := make(map[string]int)
 
 	for _, t := range tenants {
 		for _, comp := range Components {
 			key := t.Namespace + "/" + comp.Name
-			initialPerComp[key] = pipelineRunBaseCounts{
-				build: countSucceededPRs(fw, t.Namespace, "build", comp.Name),
-				test:  countSucceededPRs(fw, t.Namespace, "test", comp.Name),
+			initialPerComp[key] = PipelineRunBaseCounts{
+				Build: countSucceededPRs(fw, t.Namespace, "build", comp.Name),
+				Test:  countSucceededPRs(fw, t.Namespace, "test", comp.Name),
 			}
 			GinkgoWriter.Printf("initial counts for %s: build=%d, test=%d\n",
-				key, initialPerComp[key].build, initialPerComp[key].test)
+				key, initialPerComp[key].Build, initialPerComp[key].Test)
 		}
 		initialRelease[t.ManagedNamespace] = countSucceededPRs(fw, t.ManagedNamespace, "", "")
 		GinkgoWriter.Printf("initial release count for %s: %d\n",
@@ -434,5 +434,5 @@ func triggerBuildsAndVerify(fw *framework.Framework, tenants []Tenant) {
 			"in openshift-pipelines namespace and SprayProxy route registration",
 		WebhookDeliveryTimeout)
 
-	waitForPipelineChains(fw, tenants, initialPerComp, initialRelease)
+	WaitForPipelineChains(fw, tenants, initialPerComp, initialRelease)
 }

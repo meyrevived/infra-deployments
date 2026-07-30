@@ -1,8 +1,8 @@
-// dr_backwards_compat.go implements the backwards-compatibility DR test scenario.
+// bc_specs.go implements the backwards-compatibility DR test scenario.
 //
 // This scenario validates that backups taken on an OLDER Konflux version can be
 // successfully restored on a NEWER Konflux version. It runs as an Ordered
-// Ginkgo context (registered by dr_suite.go) with seven phases:
+// Ginkgo context (registered by bc_suite.go) with seven phases:
 //
 //  1. Create tenants on the OLD Konflux version (pre-upgrade).
 //  2. Back up tenant data before the upgrade.
@@ -17,13 +17,12 @@
 // CheckOperatorsReady are pure Go functions. See performKonfluxUpgrade
 // below for why this helper exists alongside the magefiles upgrade
 // infrastructure.
-package disaster_recovery
+package disaster_recovery_backwards_compat
 
 import (
 	"fmt"
 	"os"
 	"os/exec"
-	"strings"
 	"sync"
 
 	"github.com/go-git/go-git/v5"
@@ -34,6 +33,8 @@ import (
 	"github.com/konflux-ci/e2e-tests/pkg/framework"
 	. "github.com/onsi/ginkgo/v2" //nolint:staticcheck
 	. "github.com/onsi/gomega"    //nolint:staticcheck
+
+	dr "github.com/redhat-appstudio/infra-deployments/tests/disaster-recovery"
 )
 
 func defineBackwardsCompatSpecs() {
@@ -43,16 +44,16 @@ func defineBackwardsCompatSpecs() {
 		var fw *framework.Framework
 		AfterEach(framework.ReportFailure(&fw))
 
-		bcTenants := []Tenant{BCTenant1, BCTenant2}
+		bcTenants := []dr.Tenant{dr.BCTenant1, dr.BCTenant2}
 
 		BeforeAll(func() {
 			var err error
 			fw, err = framework.NewFramework("dr-bc")
 			Expect(err).ShouldNot(HaveOccurred(), "failed to create framework for backwards-compat")
-			validateDREnvironment(fw)
+			dr.ValidateDREnvironment(fw)
 
 			for i := range bcTenants {
-				forkRepoForTenant(fw, &bcTenants[i])
+				dr.ForkRepoForTenant(fw, &bcTenants[i])
 			}
 		})
 
@@ -68,7 +69,7 @@ func defineBackwardsCompatSpecs() {
 					go func() {
 						defer GinkgoRecover()
 						defer wg.Done()
-						createTenant(fw, t)
+						dr.CreateTenant(fw, t)
 					}()
 				}
 				wg.Wait()
@@ -76,12 +77,12 @@ func defineBackwardsCompatSpecs() {
 
 			It("should merge PaC configuration PRs on forked repos", func() {
 				for _, t := range bcTenants {
-					mergePaCConfigPRs(fw, t)
+					dr.MergePaCConfigPRs(fw, t)
 				}
 			})
 
 			It("should wait for all pipeline chains to succeed", func() {
-				waitForPipelineChains(fw, bcTenants, nil, nil)
+				dr.WaitForPipelineChains(fw, bcTenants, nil, nil)
 			})
 		})
 
@@ -94,7 +95,7 @@ func defineBackwardsCompatSpecs() {
 					go func() {
 						defer GinkgoRecover()
 						defer wg.Done()
-						createBackup(fw, t)
+						dr.CreateBackup(fw, t)
 					}()
 				}
 				wg.Wait()
@@ -102,10 +103,10 @@ func defineBackwardsCompatSpecs() {
 		})
 
 		// Phase 3: Simulate disaster by deleting tenant namespaces.
-		// See disaster_recovery.go stripAndDeleteNamespaces for full rationale.
+		// See disaster_recovery.go StripAndDeleteNamespaces for full rationale.
 		When("simulating disaster by deleting namespaces", func() {
 			It("should strip finalizers and delete namespaces atomically", func() {
-				stripAndDeleteNamespaces(fw, bcTenants)
+				dr.StripAndDeleteNamespaces(fw, bcTenants)
 			})
 		})
 
@@ -122,11 +123,11 @@ func defineBackwardsCompatSpecs() {
 		// Phase 5: Restore tenants from pre-upgrade backups on the new version.
 		When("restoring tenants from backup on the new Konflux version", func() {
 			It("should restore tenant-1 (KokoHazamar) via velero CLI method", func() {
-				restoreFromBackup(fw, BCTenant1, RestoreMethodVeleroCLI)
+				dr.RestoreFromBackup(fw, dr.BCTenant1, dr.RestoreMethodVeleroCLI)
 			})
 
 			It("should restore tenant-2 (MosheKipod) via oc command method", func() {
-				restoreFromBackup(fw, BCTenant2, RestoreMethodOCCommand)
+				dr.RestoreFromBackup(fw, dr.BCTenant2, dr.RestoreMethodOCCommand)
 			})
 		})
 
@@ -135,13 +136,13 @@ func defineBackwardsCompatSpecs() {
 		When("performing post-restore recovery", func() {
 			It("should rotate SA tokens on both tenants", func() {
 				for _, t := range bcTenants {
-					rotateSATokens(fw, t.Namespace)
+					dr.RotateSATokens(fw, t.Namespace)
 				}
 			})
 
 			It("should reconcile PaC Repository ownership on both tenants", func() {
 				for _, t := range bcTenants {
-					reconcileComponentOwnership(fw, t)
+					dr.ReconcileComponentOwnership(fw, t)
 				}
 			})
 		})
@@ -150,30 +151,31 @@ func defineBackwardsCompatSpecs() {
 		When("verifying restored tenants", func() {
 			It("should confirm structural integrity of both tenants", func() {
 				for _, t := range bcTenants {
-					verifyResources(fw, t)
+					dr.VerifyResources(fw, t)
 				}
 			})
 
 			It("should confirm push and pull secrets contain valid credentials", func() {
-				waitForPushSecretReadiness(fw, bcTenants)
+				dr.WaitForPushSecretReadiness(fw, bcTenants)
 			})
 
 			It("should link pull secrets to pipeline SA for EC verify tasks", func() {
-				ensurePullSecretsOnSA(fw, bcTenants)
+				dr.EnsurePullSecretsOnSA(fw, bcTenants)
 			})
 
 			It("should confirm functional pipeline execution after restore", func() {
-				triggerBuildsAndVerify(fw, bcTenants)
+				dr.TriggerBuildsAndVerify(fw, bcTenants)
 			})
 		})
 
 		AfterAll(func() {
-			cleanupForks(fw, bcTenants)
+			dr.CleanupForks(fw, bcTenants)
 			if CurrentSpecReport().Failed() {
-				collectFailureArtifacts(fw, bcTenants)
+				dr.CollectFailureArtifacts(fw, bcTenants)
 			} else {
-				cleanupTestResources(fw, bcTenants)
+				dr.CleanupTestResources(fw, bcTenants)
 			}
+			dr.CleanupDanglingNamespaces(fw)
 		})
 	})
 }
@@ -209,6 +211,8 @@ func performKonfluxUpgrade(fw *framework.Framework) {
 		forkOrg = "redhat-appstudio"
 	}
 
+	argoTargetRevision := os.Getenv("ARGO_TARGET_REVISION")
+
 	auth := &plumbingHttp.BasicAuth{
 		Username: "123",
 		Password: os.Getenv("GITHUB_TOKEN"),
@@ -220,18 +224,47 @@ func performKonfluxUpgrade(fw *framework.Framework) {
 	repo, err := git.PlainOpen(repoPath)
 	Expect(err).ShouldNot(HaveOccurred(), "failed to open infra-deployments repo at %s", repoPath)
 
-	branches, err := repo.Branches()
-	Expect(err).ShouldNot(HaveOccurred(), "failed to list branches")
-
 	var previewBranchRef *plumbing.Reference
-	err = branches.ForEach(func(ref *plumbing.Reference) error {
-		if !strings.Contains(ref.Name().String(), "main") {
+
+	// Prefer explicit ARGO_TARGET_REVISION when set by CI.
+	if argoTargetRevision != "" {
+		refName := plumbing.NewBranchReferenceName(argoTargetRevision)
+		ref, err := repo.Reference(refName, false)
+		if err == nil {
 			previewBranchRef = ref
+			GinkgoWriter.Printf("Using preview branch from ARGO_TARGET_REVISION: %s\n", argoTargetRevision)
+		} else {
+			GinkgoWriter.Printf("ARGO_TARGET_REVISION=%s but branch not found locally: %v — falling back to heuristic\n",
+				argoTargetRevision, err)
 		}
-		return nil
-	})
-	Expect(err).ShouldNot(HaveOccurred(), "failed to iterate branches")
-	Expect(previewBranchRef).ShouldNot(BeNil(), "no preview branch found in %s", repoPath)
+	}
+
+	// Heuristic fallback: find non-main branches, fail if ambiguous.
+	if previewBranchRef == nil {
+		var candidates []*plumbing.Reference
+		branches, err := repo.Branches()
+		Expect(err).ShouldNot(HaveOccurred(), "failed to list branches")
+		err = branches.ForEach(func(ref *plumbing.Reference) error {
+			name := ref.Name().Short()
+			if name != "main" && name != "master" {
+				candidates = append(candidates, ref)
+			}
+			return nil
+		})
+		Expect(err).ShouldNot(HaveOccurred(), "failed to iterate branches")
+		Expect(candidates).ShouldNot(BeEmpty(), "no preview branch found in %s", repoPath)
+
+		if len(candidates) > 1 {
+			names := make([]string, len(candidates))
+			for i, c := range candidates {
+				names[i] = c.Name().Short()
+			}
+			Fail(fmt.Sprintf("ambiguous preview branch discovery: found %d candidates %v in %s — "+
+				"set ARGO_TARGET_REVISION to disambiguate", len(candidates), names, repoPath))
+		}
+		previewBranchRef = candidates[0]
+		GinkgoWriter.Printf("Discovered preview branch via heuristic: %s\n", previewBranchRef.Name())
+	}
 
 	wt, err := repo.Worktree()
 	Expect(err).ShouldNot(HaveOccurred(), "failed to get worktree")
@@ -265,7 +298,6 @@ func performKonfluxUpgrade(fw *framework.Framework) {
 	// The CI commands.sh adds the qe remote (redhat-appstudio-qe fork) and
 	// discovers ARGO_TARGET_REVISION — the preview branch ArgoCD is watching.
 	// We force-push the merged local branch to that preview branch.
-	argoTargetRevision := os.Getenv("ARGO_TARGET_REVISION")
 	var pushRefSpec gitconfig.RefSpec
 	if argoTargetRevision != "" {
 		By(fmt.Sprintf("Pushing merged changes to qe remote (branch %s)", argoTargetRevision))
@@ -288,10 +320,10 @@ func performKonfluxUpgrade(fw *framework.Framework) {
 	Expect(ic.CheckOperatorsReady()).Should(Succeed(), "operators not ready after upgrade")
 
 	// Verify backup infrastructure survived the upgrade. Only Velero and BSL,
-	// not the full validateDREnvironment — the upgrade is tested elsewhere.
+	// not the full ValidateDREnvironment — the upgrade is tested elsewhere.
 	By("Verifying Velero and OADP survived the upgrade")
-	validateVeleroReady(fw)
-	validateBSLAvailable(fw)
+	dr.ValidateVeleroReady(fw)
+	dr.ValidateBSLAvailable(fw)
 }
 
 // mergeBranchOrFail shells out to git merge, mirroring mergeBranch in

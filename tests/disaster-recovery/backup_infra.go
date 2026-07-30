@@ -28,14 +28,18 @@ import (
 	"github.com/konflux-ci/e2e-tests/pkg/framework"
 	"github.com/konflux-ci/e2e-tests/pkg/utils"
 	"github.com/konflux-ci/e2e-tests/pkg/utils/build"
+	imagecontrollerv1alpha1 "github.com/konflux-ci/image-controller/api/v1alpha1"
+	releaseapi "github.com/konflux-ci/release-service/api/v1alpha1"
 	tektonutils "github.com/konflux-ci/release-service/tekton/utils"
+	pipeline "github.com/tektoncd/pipeline/pkg/apis/pipeline/v1"
+	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 )
 
-// forkRepoForTenant creates a unique GitHub fork of the MathWizz source repo
+// ForkRepoForTenant creates a unique GitHub fork of the MathWizz source repo
 // for this tenant. Each tenant gets its own fork so that PaC can configure
 // webhooks independently (avoids PaC error 53 when multiple namespaces target
 // the same repo). Sets the ForkRepoName and ForkRepoURL fields on the Tenant.
-func forkRepoForTenant(fw *framework.Framework, t *Tenant) {
+func ForkRepoForTenant(fw *framework.Framework, t *Tenant) {
 	GinkgoHelper()
 
 	forkName := fmt.Sprintf("DR-MathWizz-%s", util.GenerateRandomString(6))
@@ -51,10 +55,11 @@ func forkRepoForTenant(fw *framework.Framework, t *Tenant) {
 	t.ForkRepoURL = fmt.Sprintf("https://github.com/%s/%s", org, forkName)
 }
 
-// cleanupForks deletes the forked GitHub repos for all tenants. Safe to call
+// CleanupForks deletes the forked GitHub repos for all tenants. Safe to call
 // even if a fork was never created (empty ForkRepoName is a no-op).
-func cleanupForks(fw *framework.Framework, tenants []Tenant) {
+func CleanupForks(fw *framework.Framework, tenants []Tenant) {
 	ghClient := fw.AsKubeAdmin.HasController.Github
+	var errs []error
 	for _, t := range tenants {
 		if t.ForkRepoName == "" {
 			continue
@@ -62,16 +67,20 @@ func cleanupForks(fw *framework.Framework, tenants []Tenant) {
 		GinkgoWriter.Printf("Deleting fork repo %s for tenant %s\n", t.ForkRepoName, t.Namespace)
 		if err := ghClient.DeleteRepositoryIfExists(t.ForkRepoName); err != nil {
 			GinkgoWriter.Printf("WARNING: failed to delete fork %s: %v\n", t.ForkRepoName, err)
+			errs = append(errs, fmt.Errorf("fork %s: %w", t.ForkRepoName, err))
 		}
+	}
+	if len(errs) > 0 {
+		GinkgoWriter.Printf("WARNING: %d fork cleanup errors (repos may need manual deletion)\n", len(errs))
 	}
 }
 
-// mergePaCConfigPRs finds and merges all PaC configuration PRs on a tenant's
+// MergePaCConfigPRs finds and merges all PaC configuration PRs on a tenant's
 // forked repo. Build-service opens one PR per Component (branch prefix
 // "konflux-"), so we expect ComponentsPerTenant PRs. Merging is required so
-// that subsequent PRs (e.g., from triggerBuildsAndVerify) trigger PipelineRuns
+// that subsequent PRs (e.g., from TriggerBuildsAndVerify) trigger PipelineRuns
 // via the PaC pipeline definitions on the default branch.
-func mergePaCConfigPRs(fw *framework.Framework, t Tenant) {
+func MergePaCConfigPRs(fw *framework.Framework, t Tenant) {
 	GinkgoHelper()
 
 	Expect(t.ForkRepoName).ShouldNot(BeEmpty(), "ForkRepoName not set for tenant %s", t.Namespace)
@@ -111,10 +120,10 @@ func mergePaCConfigPRs(fw *framework.Framework, t Tenant) {
 	}
 }
 
-// createTenant provisions a full tenant namespace with an Application and all
+// CreateTenant provisions a full tenant namespace with an Application and all
 // Components defined in the Components slice. After this function returns the
 // tenant is ready for the full build → integration test → release pipeline chain.
-func createTenant(fw *framework.Framework, t Tenant) {
+func CreateTenant(fw *framework.Framework, t Tenant) {
 	GinkgoHelper()
 
 	By(fmt.Sprintf("Creating tenant namespace %s", t.Namespace))
@@ -146,7 +155,7 @@ func createTenant(fw *framework.Framework, t Tenant) {
 
 		repoURL := t.ForkRepoURL
 		Expect(repoURL).ShouldNot(BeEmpty(),
-			"ForkRepoURL not set for tenant %s — call forkRepoForTenant first", t.Namespace)
+			"ForkRepoURL not set for tenant %s — call ForkRepoForTenant first", t.Namespace)
 
 		spec := appservice.ComponentSpec{
 			ComponentName: comp.Name,
@@ -339,7 +348,7 @@ func listSATokenSecrets(ctx context.Context, fw *framework.Framework, namespace 
 	return tokens, nil
 }
 
-// rotateSATokens deletes all ServiceAccount token Secrets in a namespace and
+// RotateSATokens deletes all ServiceAccount token Secrets in a namespace and
 // waits until the token controller regenerates exactly as many replacements.
 //
 // Why this is needed: after a Velero restore, ServiceAccount UIDs change but
@@ -347,7 +356,7 @@ func listSATokenSecrets(ctx context.Context, fw *framework.Framework, namespace 
 // invalid. Deleting the stale tokens forces the token controller to mint new
 // ones that match the current SA UIDs. See:
 // https://konflux-ci.dev/docs/troubleshooting/service-accounts/
-func rotateSATokens(fw *framework.Framework, namespace string) {
+func RotateSATokens(fw *framework.Framework, namespace string) {
 	GinkgoHelper()
 
 	ctx := context.Background()
@@ -380,4 +389,37 @@ func rotateSATokens(fw *framework.Framework, namespace string) {
 		return len(newTokens)
 	}, SATokenTimeout, SATokenPoll).Should(Equal(deletedCount),
 		fmt.Sprintf("expected exactly %d new SA token Secrets in namespace %s", deletedCount, namespace))
+}
+
+// CleanupDanglingNamespaces finds and removes any dr-test-* namespaces left
+// behind by previous failed test runs. Finalizers are stripped from known
+// resource types before deletion to prevent controller-driven stalls.
+func CleanupDanglingNamespaces(fw *framework.Framework) {
+	ctx := context.Background()
+	kubeClient := fw.AsKubeAdmin.CommonController.KubeInterface()
+	restClient := fw.AsKubeAdmin.CommonController.KubeRest()
+
+	nsList, err := kubeClient.CoreV1().Namespaces().List(ctx, metav1.ListOptions{})
+	if err != nil {
+		GinkgoWriter.Printf("WARNING: failed to list namespaces for dangling cleanup: %v\n", err)
+		return
+	}
+
+	for i := range nsList.Items {
+		ns := &nsList.Items[i]
+		if !strings.HasPrefix(ns.Name, "dr-test-") {
+			continue
+		}
+		GinkgoWriter.Printf("Dangling namespace detected: %s — cleaning up\n", ns.Name)
+
+		stripFinalizers(ctx, restClient, ns.Name, &appservice.ApplicationList{}, "Application", true)
+		stripFinalizers(ctx, restClient, ns.Name, &appservice.ComponentList{}, "Component", true)
+		stripFinalizers(ctx, restClient, ns.Name, &imagecontrollerv1alpha1.ImageRepositoryList{}, "ImageRepository", true)
+		stripFinalizers(ctx, restClient, ns.Name, &releaseapi.ReleaseList{}, "Release", true)
+		stripFinalizers(ctx, restClient, ns.Name, &pipeline.PipelineRunList{}, "PipelineRun", true)
+
+		if err := kubeClient.CoreV1().Namespaces().Delete(ctx, ns.Name, metav1.DeleteOptions{}); err != nil {
+			GinkgoWriter.Printf("WARNING: failed to clean up dangling namespace %s: %v\n", ns.Name, err)
+		}
+	}
 }

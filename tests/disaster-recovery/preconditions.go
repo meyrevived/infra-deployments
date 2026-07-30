@@ -2,7 +2,7 @@
 // any DR test. These are in a regular .go file (not _test.go) so they are
 // compiled when the backup package is imported via blank import from cmd/.
 //
-// Each Describe block calls validateDREnvironment() in its BeforeAll to
+// Each Describe block calls ValidateDREnvironment() in its BeforeAll to
 // fail fast if the cluster is not ready for DR testing.
 //
 // NOTE: Helper functions call GinkgoHelper() so that assertion failures report
@@ -21,15 +21,15 @@ import (
 	"sigs.k8s.io/controller-runtime/pkg/client"
 )
 
-// validateDREnvironment runs all precondition checks for the DR test suite.
+// ValidateDREnvironment runs all precondition checks for the DR test suite.
 // Call this from BeforeAll in each Describe block to fail fast if the cluster
 // is not ready. Each check is a separate By() step for clear diagnostics.
-func validateDREnvironment(fw *framework.Framework) {
+func ValidateDREnvironment(fw *framework.Framework) {
 	GinkgoHelper()
 
 	validateOADPOperator(fw)
-	validateVeleroReady(fw)
-	validateBSLAvailable(fw)
+	ValidateVeleroReady(fw)
+	ValidateBSLAvailable(fw)
 	validateGitHubRepo(fw)
 }
 
@@ -56,10 +56,10 @@ func validateOADPOperator(fw *framework.Framework) {
 		"no Running pods found in %s — OADP operator is unhealthy", VeleroNamespace)
 }
 
-// validateVeleroReady checks that the Velero deployment in openshift-adp has
+// ValidateVeleroReady checks that the Velero deployment in openshift-adp has
 // at least one ready replica. Uses Eventually to tolerate brief unavailability
 // during operator reconciliation.
-func validateVeleroReady(fw *framework.Framework) {
+func ValidateVeleroReady(fw *framework.Framework) {
 	GinkgoHelper()
 	By("Validating Velero readiness: deployment has ready replicas")
 
@@ -74,10 +74,10 @@ func validateVeleroReady(fw *framework.Framework) {
 		"velero deployment in %s should have exactly 1 ready replica", VeleroNamespace)
 }
 
-// validateBSLAvailable checks that at least one BackupStorageLocation CR in
+// ValidateBSLAvailable checks that at least one BackupStorageLocation CR in
 // openshift-adp has status.phase == "Available". Uses Eventually because the
 // BSL controller may take time to reconcile after the operator starts.
-func validateBSLAvailable(fw *framework.Framework) {
+func ValidateBSLAvailable(fw *framework.Framework) {
 	GinkgoHelper()
 	By("Validating BSL availability: at least one BackupStorageLocation is Available")
 

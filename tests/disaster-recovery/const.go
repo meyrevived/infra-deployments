@@ -20,6 +20,8 @@
 package disaster_recovery
 
 import (
+	"fmt"
+	"os"
 	"time"
 
 	"github.com/konflux-ci/e2e-tests/pkg/constants"
@@ -40,8 +42,8 @@ type Tenant struct {
 	ManagedNamespace string
 	AppName          string
 	BackupName       string
-	ForkRepoName     string // set at runtime by forkRepoForTenant
-	ForkRepoURL      string // set at runtime by forkRepoForTenant
+	ForkRepoName     string // set at runtime by ForkRepoForTenant
+	ForkRepoURL      string // set at runtime by ForkRepoForTenant
 }
 
 // ComponentDef describes a MathWizz application component (microservice) and
@@ -87,7 +89,7 @@ const (
 	// MathWizzRepoName is the repository name without the GitHub organization.
 	// The framework's GitHub client resolves the full path using the
 	// GITHUB_E2E_ORGANIZATION_ENV environment variable. The repo must exist
-	// as a fork in that organization for triggerBuildsAndVerify to work.
+	// as a fork in that organization for TriggerBuildsAndVerify to work.
 	MathWizzRepoName = "DR_test_MathWizz"
 
 	// MathWizzDefaultBranch is the default branch of the MathWizz repo.
@@ -103,6 +105,10 @@ const (
 	// creates. Derived from the Components slice but kept as a constant
 	// because it's used across multiple files for PipelineRun count assertions.
 	ComponentsPerTenant = 3
+
+	// MathWizzDefaultTargetPort is the default port set by HAS when
+	// no targetPort is specified in the Component spec.
+	MathWizzDefaultTargetPort = 8081
 )
 
 // ---------------------------------------------------------------------------
@@ -330,10 +336,7 @@ const (
 	SATokenTimeout = 5 * time.Minute
 	SATokenPoll    = 30 * time.Second
 
-	// PipelineTimeout is how long to wait for all build and integration test
-	// PipelineRuns to complete in a tenant namespace.
-	PipelineTimeout = 90 * time.Minute
-	PipelinePoll    = 30 * time.Second
+	PipelinePoll = 30 * time.Second
 
 	// WebhookDeliveryTimeout is how long to wait for PaC to create at least
 	// one new PipelineRun after trigger PRs are opened. If no PipelineRuns
@@ -342,17 +345,28 @@ const (
 	WebhookDeliveryTimeout = 5 * time.Minute
 	WebhookDeliveryPoll    = 30 * time.Second
 
-	// ReleaseChainTimeout is how long to wait for all release PipelineRuns to
-	// complete in the managed namespace after integration tests pass. Release
-	// pipelines are slower because they include image signing, EC validation,
-	// and pushing to the release registry.
-	ReleaseChainTimeout = 60 * time.Minute
-	ReleaseChainPoll    = 5 * time.Minute
+	ReleaseChainPoll = 5 * time.Minute
 
 	// VeleroReadyTimeout is how long to wait for Velero deployment readiness
 	// and BSL availability during precondition checks.
 	VeleroReadyTimeout = 5 * time.Minute
 	VeleroReadyPoll    = 10 * time.Second
+)
+
+var (
+	// PipelineTimeout is how long to wait for all build and integration test
+	// PipelineRuns to complete in a tenant namespace.
+	// Overridable via DR_PIPELINE_TIMEOUT env var.
+	// Format: Go duration string (e.g., "120m", "2h").
+	PipelineTimeout = getEnvDuration("DR_PIPELINE_TIMEOUT", 90*time.Minute)
+
+	// ReleaseChainTimeout is how long to wait for all release PipelineRuns to
+	// complete in the managed namespace after integration tests pass. Release
+	// pipelines are slower because they include image signing, EC validation,
+	// and pushing to the release registry.
+	// Overridable via DR_RELEASE_CHAIN_TIMEOUT env var.
+	// Format: Go duration string (e.g., "120m", "2h").
+	ReleaseChainTimeout = getEnvDuration("DR_RELEASE_CHAIN_TIMEOUT", 60*time.Minute)
 )
 
 // ---------------------------------------------------------------------------
@@ -385,3 +399,22 @@ const (
 // tarball. Velero writes the compressed backup data at this path inside the
 // bucket. Both %s placeholders are the backup name.
 const VeleroBackupTarballPathFmt = "backups/%s/%s.tar.gz"
+
+// getEnvDuration reads a time.Duration from an environment variable.
+// Returns defaultVal if the variable is unset, unparseable, or non-positive.
+func getEnvDuration(key string, defaultVal time.Duration) time.Duration {
+	s := os.Getenv(key)
+	if s == "" {
+		return defaultVal
+	}
+	d, err := time.ParseDuration(s)
+	if err != nil {
+		fmt.Fprintf(os.Stderr, "WARNING: env %s=%q is not a valid duration, using default %s\n", key, s, defaultVal)
+		return defaultVal
+	}
+	if d <= 0 {
+		fmt.Fprintf(os.Stderr, "WARNING: env %s=%q resolved to non-positive duration, using default %s\n", key, s, defaultVal)
+		return defaultVal
+	}
+	return d
+}

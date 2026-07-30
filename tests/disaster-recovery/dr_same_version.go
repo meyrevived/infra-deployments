@@ -36,10 +36,10 @@ func defineSameVersionSpecs() {
 			fw, err = framework.NewFramework("dr-sv")
 			Expect(err).ShouldNot(HaveOccurred(), "failed to create framework")
 
-			validateDREnvironment(fw)
+			ValidateDREnvironment(fw)
 
 			for i := range svTenants {
-				forkRepoForTenant(fw, &svTenants[i])
+				ForkRepoForTenant(fw, &svTenants[i])
 			}
 		})
 
@@ -55,7 +55,7 @@ func defineSameVersionSpecs() {
 					go func() {
 						defer GinkgoRecover()
 						defer wg.Done()
-						createTenant(fw, t)
+						CreateTenant(fw, t)
 					}()
 				}
 				wg.Wait()
@@ -63,12 +63,12 @@ func defineSameVersionSpecs() {
 
 			It("should merge PaC configuration PRs on forked repos", func() {
 				for _, t := range svTenants {
-					mergePaCConfigPRs(fw, t)
+					MergePaCConfigPRs(fw, t)
 				}
 			})
 
 			It("should wait for all pipeline chains to succeed", func() {
-				waitForPipelineChains(fw, svTenants, nil, nil)
+				WaitForPipelineChains(fw, svTenants, nil, nil)
 			})
 		})
 
@@ -81,7 +81,7 @@ func defineSameVersionSpecs() {
 					go func() {
 						defer GinkgoRecover()
 						defer wg.Done()
-						createBackup(fw, t)
+						CreateBackup(fw, t)
 					}()
 				}
 				wg.Wait()
@@ -101,18 +101,18 @@ func defineSameVersionSpecs() {
 		// semantics. See KFLUXINFRA-3954, STONEBLD-3714.
 		When("simulating disaster by deleting namespaces", func() {
 			It("should strip finalizers and delete namespaces atomically", func() {
-				stripAndDeleteNamespaces(fw, svTenants)
+				StripAndDeleteNamespaces(fw, svTenants)
 			})
 		})
 
 		// Phase 4: Restore tenants from backup using both SOP methods.
 		When("restoring from backup", func() {
 			It("should restore tenant-1 (KokoHazamar) via velero CLI method", func() {
-				restoreFromBackup(fw, SVTenant1, RestoreMethodVeleroCLI)
+				RestoreFromBackup(fw, SVTenant1, RestoreMethodVeleroCLI)
 			})
 
 			It("should restore tenant-2 (MosheKipod) via oc command method", func() {
-				restoreFromBackup(fw, SVTenant2, RestoreMethodOCCommand)
+				RestoreFromBackup(fw, SVTenant2, RestoreMethodOCCommand)
 			})
 		})
 
@@ -121,13 +121,13 @@ func defineSameVersionSpecs() {
 		When("performing post-restore recovery", func() {
 			It("should rotate SA tokens on both tenants", func() {
 				for _, t := range svTenants {
-					rotateSATokens(fw, t.Namespace)
+					RotateSATokens(fw, t.Namespace)
 				}
 			})
 
 			It("should reconcile PaC Repository ownership on both tenants", func() {
 				for _, t := range svTenants {
-					reconcileComponentOwnership(fw, t)
+					ReconcileComponentOwnership(fw, t)
 				}
 			})
 		})
@@ -136,30 +136,31 @@ func defineSameVersionSpecs() {
 		When("verifying restored tenants", func() {
 			It("should confirm structural integrity of both tenants", func() {
 				for _, t := range svTenants {
-					verifyResources(fw, t)
+					VerifyResources(fw, t)
 				}
 			})
 
 			It("should confirm push secrets contain valid credentials before triggering builds", func() {
-				waitForPushSecretReadiness(fw, svTenants)
+				WaitForPushSecretReadiness(fw, svTenants)
 			})
 
 			It("should link pull secrets to pipeline SA for EC verify tasks", func() {
-				ensurePullSecretsOnSA(fw, svTenants)
+				EnsurePullSecretsOnSA(fw, svTenants)
 			})
 
 			It("should confirm functional pipeline execution after restore", func() {
-				triggerBuildsAndVerify(fw, svTenants)
+				TriggerBuildsAndVerify(fw, svTenants)
 			})
 		})
 
 		AfterAll(func() {
-			cleanupForks(fw, svTenants)
+			CleanupForks(fw, svTenants)
 			if CurrentSpecReport().Failed() {
-				collectFailureArtifacts(fw, svTenants)
+				CollectFailureArtifacts(fw, svTenants)
 			} else {
-				cleanupTestResources(fw, svTenants)
+				CleanupTestResources(fw, svTenants)
 			}
+			CleanupDanglingNamespaces(fw)
 		})
 	})
 }
